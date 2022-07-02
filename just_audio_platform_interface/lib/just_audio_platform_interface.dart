@@ -222,6 +222,15 @@ abstract class AudioPlayerPlatform {
     throw UnimplementedError(
         "androidEqualizerBandSetGain() has not been implemented.");
   }
+
+  void registerResolvingAudioSource(
+      String id, Future<String> Function() callback) {
+    return;
+  }
+
+  void unregisterResolvingAudioSource(String id) {
+    return;
+  }
 }
 
 /// A data update communicated from the platform implementation to the Flutter
@@ -1051,6 +1060,23 @@ class ProgressiveAudioSourceMessage extends UriAudioSourceMessage {
   @override
   Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
         'type': 'progressive',
+        'id': id,
+        'uri': uri,
+        'headers': headers,
+      };
+}
+
+class ResolvingAudioSourceMessage extends ProgressiveAudioSourceMessage {
+  ResolvingAudioSourceMessage({
+    required String id,
+    required String uri,
+    Map<String, String>? headers,
+    dynamic tag,
+  }) : super(id: id, uri: uri, headers: headers, tag: tag);
+
+  @override
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
+        'type': 'resolving',
         'id': id,
         'uri': uri,
         'headers': headers,

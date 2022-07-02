@@ -8,6 +8,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultLivePlaybackSpeedControl;
 import com.google.android.exoplayer2.DefaultLoadControl;
@@ -38,23 +42,22 @@ import com.google.android.exoplayer2.source.SilenceMediaSource;
 import com.google.android.exoplayer2.source.TrackGroup;
 import com.google.android.exoplayer2.source.dash.DashMediaSource;
 import com.google.android.exoplayer2.source.hls.HlsMediaSource;
-import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.upstream.DefaultDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
+import com.google.android.exoplayer2.upstream.ResolvingDataSource;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 import io.flutter.Log;
 import io.flutter.plugin.common.BinaryMessenger;
-import io.flutter.plugin.common.EventChannel;
-import io.flutter.plugin.common.EventChannel.EventSink;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
+
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -589,6 +592,12 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
         Map<?, ?> map = (Map<?, ?>)json;
         String id = (String)map.get("id");
         switch ((String)map.get("type")) {
+        case "resolving":
+            return new ProgressiveMediaSource.Factory(buildResolvingDataSourceFactory((String)map.get("id")), extractorsFactory)
+                    .createMediaSource(new MediaItem.Builder()
+                            .setUri(Uri.parse((String)map.get("uri")))
+                            .setTag(id)
+                            .build());
         case "progressive":
             return new ProgressiveMediaSource.Factory(buildDataSourceFactory(), extractorsFactory)
                     .createMediaSource(new MediaItem.Builder()
@@ -687,9 +696,82 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
     private DataSource.Factory buildDataSourceFactory() {
         String userAgent = Util.getUserAgent(context, "just_audio");
         DataSource.Factory httpDataSourceFactory = new DefaultHttpDataSource.Factory()
-            .setUserAgent(userAgent)
-            .setAllowCrossProtocolRedirects(true);
+                .setUserAgent(userAgent)
+                .setAllowCrossProtocolRedirects(true);
         return new DefaultDataSource.Factory(context, httpDataSourceFactory);
+    }
+
+    private class UriResolver implements ResolvingDataSource.Resolver {
+        final String id;
+
+        Uri uri;
+
+        private UriResolver(String id) {
+            this.id = id;
+        }
+
+        @NonNull
+        @Override
+        public DataSpec resolveDataSpec(@NonNull DataSpec dataSpec) throws IOException {
+            if (uri != null) {
+                return dataSpec.withUri(uri);
+            }
+
+            final String[] success = new String[1];
+            final IOException[] error = new IOException[1];
+
+            Result result = new Result() {
+                @Override
+                public synchronized void success(@Nullable Object result) {
+                    success[0] = (String) result;
+                    notifyAll();
+                }
+
+                @Override
+                public synchronized void error(@NonNull String errorCode, @Nullable String errorMessage, @Nullable Object errorDetails) {
+                    error[0] = new IOException("Result error for " + id + ": " +
+                            errorCode + ": " +
+                            (errorMessage == null ? "" : errorMessage) + "." +
+                            (errorDetails == null ? "" : " " + errorDetails)
+                    );
+                    notifyAll();
+                }
+
+                @Override
+                public synchronized void notImplemented() {
+                    error[0] = new IOException("Result error for " + id + ": not implemented");
+                    notifyAll();
+                }
+            };
+
+            handler.post(() -> methodChannel.invokeMethod(id, null, result));
+            synchronized (result) {
+                try {
+                    result.wait(30 * 1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                    throw new IOException("InterruptedException", e);
+                }
+            }
+
+            if (success[0] != null) {
+                uri = Uri.parse(success[0]);
+                return dataSpec.withUri(uri);
+            }
+            if (error[0] != null) {
+                throw error[0];
+            }
+
+            return dataSpec;
+        }
+    }
+
+    private DataSource.Factory buildResolvingDataSourceFactory(String id) {
+        DataSource.Factory resolvingDataSourceFactory = new ResolvingDataSource.Factory(
+                buildDataSourceFactory(),
+                new UriResolver(id)
+        );
+        return new DefaultDataSource.Factory(context, resolvingDataSourceFactory);
     }
 
     private void load(final MediaSource mediaSource, final long initialPosition, final Integer initialIndex, final Result result) {

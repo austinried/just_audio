@@ -1595,6 +1595,17 @@ class MockAudioPlayer implements AudioPlayerPlatform {
       AndroidEqualizerBandSetGainRequest request) async {
     return AndroidEqualizerBandSetGainResponse();
   }
+
+  @override
+  void registerResolvingAudioSource(
+      String id, Future<String> Function() callback) {
+    return;
+  }
+
+  @override
+  void unregisterResolvingAudioSource(String id) {
+    return;
+  }
 }
 
 final byteRangeData = List.generate(200, (i) => i);

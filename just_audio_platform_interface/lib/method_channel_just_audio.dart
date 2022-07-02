@@ -34,10 +34,19 @@ class MethodChannelJustAudio extends JustAudioPlatform {
 /// An implementation of [AudioPlayerPlatform] that uses method channels.
 class MethodChannelAudioPlayer extends AudioPlayerPlatform {
   final MethodChannel _channel;
+  final Map<String, Future<String> Function()> _callbacks = {};
 
   MethodChannelAudioPlayer(String id)
       : _channel = MethodChannel('com.ryanheise.just_audio.methods.$id'),
-        super(id);
+        super(id) {
+    _channel.setMethodCallHandler((call) async {
+      if (_callbacks.containsKey(call.method)) {
+        return await _callbacks[call.method]!.call();
+      } else {
+        throw UnimplementedError();
+      }
+    });
+  }
 
   @override
   Stream<PlaybackEventMessage> get playbackEventMessageStream =>
@@ -222,5 +231,16 @@ class MethodChannelAudioPlayer extends AudioPlayerPlatform {
     return AndroidEqualizerBandSetGainResponse.fromMap(
         (await _channel.invokeMethod<Map<dynamic, dynamic>>(
             'androidEqualizerBandSetGain', request.toMap()))!);
+  }
+
+  @override
+  void registerResolvingAudioSource(
+      String id, Future<String> Function() callback) {
+    _callbacks[id] = callback;
+  }
+
+  @override
+  void unregisterResolvingAudioSource(String id) {
+    _callbacks.remove(id);
   }
 }

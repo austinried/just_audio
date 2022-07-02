@@ -2198,6 +2198,32 @@ class ProgressiveAudioSource extends UriAudioSource {
       id: _id, uri: _effectiveUri.toString(), headers: headers, tag: tag);
 }
 
+class ResolvingAudioSource extends ProgressiveAudioSource {
+  final Future<String> Function() callback;
+
+  ResolvingAudioSource(Uri uri, this.callback,
+      {Map<String, String>? headers, dynamic tag, Duration? duration})
+      : super(uri, headers: headers, tag: tag, duration: duration);
+
+  @override
+  Future<void> _setup(AudioPlayer player) async {
+    await super._setup(player);
+    // has to be a weak ref otherwise platform won't get disposed
+    player._nativePlatform
+        ?.then((p) => p.registerResolvingAudioSource(_id, callback));
+  }
+
+  @override
+  void _dispose() {
+    _player?._platformValue?.unregisterResolvingAudioSource(_id);
+    super._dispose();
+  }
+
+  @override
+  AudioSourceMessage _toMessage() => ResolvingAudioSourceMessage(
+      id: _id, uri: _effectiveUri.toString(), headers: headers, tag: tag);
+}
+
 /// An [AudioSource] representing a DASH stream. The following URI schemes are
 /// supported:
 ///
